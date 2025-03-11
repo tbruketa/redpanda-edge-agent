@@ -55,10 +55,17 @@ func (d Direction) String() string {
 	}
 }
 
+type Config struct {
+	Topics map[byte]Topic
+}
+
 type Topic struct {
-	sourceName      string
-	destinationName string
-	direction       Direction
+	sourceName            string `yaml: "source"`
+	destinationName       string `yaml: "destination"`
+	direction             Direction
+	destinationReplicas   int  `yaml: "replicas"`
+	destinationPartitions int  `yaml: "partition_count"`
+	customPartitioning    bool `yaml: "custom_partitioning_enabled"`
 }
 
 func (t Topic) String() string {
@@ -140,47 +147,74 @@ func InitConfig(path *string) {
 	if err := config.Load(file.Provider(*path), yaml.Parser()); err != nil {
 		log.Errorf("Error loading config: %v", err)
 	}
-	validate()
 	log.Debugf(config.Sprint())
+	validate()
+
+}
+
+/*func InitConfig(path *string) {
+	lock.Lock()
+	defer lock.Unlock()
+
+	config.Load(defaultConfig, nil)
+	log.Infof("Init config from file: %s", *path)
+	yamlFile, err := os.ReadFile(*path)
+	err = yaml.Unmarshal(yamlFile, &config)
+	if err != nil {
+		panic(err)
+	}
+
+	validate()
+	//log.Debugf(config.Sprint())
+}*/
+
+func Get(this interface{}, key string) interface{} {
+	return this.(map[interface{}]interface{})[key]
+}
+func String(payload interface{}) string {
+	var load string
+	if pay, oh := payload.(string); oh {
+		load = pay
+	} else {
+		load = ""
+	}
+	return load
 }
 
 // Parse topic configuration
-func parseTopics(topics []string, direction Direction) []Topic {
+func parseTopics(config *koanf.Koanf, direction Direction) []Topic {
 	var all []Topic
-	for _, t := range topics {
-		s := strings.Split(t, ":")
-		if len(s) == 1 {
-			all = append(all, Topic{
-				sourceName:      strings.TrimSpace(s[0]),
-				destinationName: strings.TrimSpace(s[0]),
-				direction:       direction,
-			})
-		} else if len(s) == 2 {
-			// Push from source topic to destination topic
-			var src = strings.TrimSpace(s[0])
-			var dst = strings.TrimSpace(s[1])
-			if direction == Pull {
-				// Pull from destination topic to source topic
-				src = strings.TrimSpace(s[1])
-				dst = strings.TrimSpace(s[0])
-			}
-			all = append(all, Topic{
-				sourceName:      src,
-				destinationName: dst,
-				direction:       direction,
-			})
-		} else {
-			log.Fatalf("Incorrect topic configuration: %s", t)
-		}
+	var topic Topic
+
+	configStr := "source.topics.topic"
+	if direction == Pull {
+		configStr = "destination.topics.topic"
 	}
+
+	i := 0
+	topicConfig := configStr + strconv.Itoa(i)
+
+	for config.String(topicConfig) != "" {
+		i++
+		topic.destinationName = config.String(topicConfig + ".destination")
+		log.Debugf("Discovered topic :%v", topic.destinationName)
+		topic.sourceName = config.String(topicConfig + ".source")
+		topic.destinationReplicas = config.Int(topicConfig + ".replicas")
+		topic.destinationPartitions = config.Int(topicConfig + ".partition_count")
+		topic.customPartitioning = config.Bool(topicConfig + ".custom_partitioning_enabled")
+		topicConfig = configStr + strconv.Itoa(i)
+		topic.direction = Push
+		all = append(all, topic)
+	}
+
 	return all
 }
 
 func GetTopics(p Prefix) []Topic {
 	if p == Source {
-		return parseTopics(config.Strings("source.topics"), Push)
+		return parseTopics(config, Push)
 	} else {
-		return parseTopics(config.Strings("destination.topics"), Pull)
+		return parseTopics(config, Pull)
 	}
 }
 
