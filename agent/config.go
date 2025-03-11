@@ -152,35 +152,6 @@ func InitConfig(path *string) {
 
 }
 
-/*func InitConfig(path *string) {
-	lock.Lock()
-	defer lock.Unlock()
-
-	config.Load(defaultConfig, nil)
-	log.Infof("Init config from file: %s", *path)
-	yamlFile, err := os.ReadFile(*path)
-	err = yaml.Unmarshal(yamlFile, &config)
-	if err != nil {
-		panic(err)
-	}
-
-	validate()
-	//log.Debugf(config.Sprint())
-}*/
-
-func Get(this interface{}, key string) interface{} {
-	return this.(map[interface{}]interface{})[key]
-}
-func String(payload interface{}) string {
-	var load string
-	if pay, oh := payload.(string); oh {
-		load = pay
-	} else {
-		load = ""
-	}
-	return load
-}
-
 // Parse topic configuration
 func parseTopics(config *koanf.Koanf, direction Direction) []Topic {
 	var all []Topic
