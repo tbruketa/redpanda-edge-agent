@@ -60,12 +60,12 @@ type Config struct {
 }
 
 type Topic struct {
-	sourceName            string `yaml: "source"`
-	destinationName       string `yaml: "destination"`
+	sourceName            string
+	destinationName       string
 	direction             Direction
-	destinationReplicas   int  `yaml: "replicas"`
-	destinationPartitions int  `yaml: "partition_count"`
-	customPartitioning    bool `yaml: "custom_partitioning_enabled"`
+	destinationReplicas   int
+	destinationPartitions int
+	customPartitioning    bool
 }
 
 func (t Topic) String() string {
