@@ -5,12 +5,18 @@ source:
   # List of outbound topics to push from source to destination
   topics:
     topic0:
+        destination: "_schemas"
+        source: "_schemas"
+        partition_count: 1
+        replicas: 1
+        custom_partitioning_enabled: false
+    topic1:
         destination: "telemetryA"
         source: "telemetryA"
         partition_count: 10
         replicas: 1
         custom_partitioning_enabled: false
-    topic1:
+    topic2:
         destination: "telemetryC"
         source: "telemetryB"
         partition_count: 10
@@ -27,12 +33,6 @@ destination:
   max_version: "3.0.0" # maximum kafka protocol version
   # List of inbound topics to pull from destination to source
   topics:
-    topic0:
-        destination: "_schemas"
-        source: "_schemas"
-        partition_count: 1
-        replicas: 1
-        custom_partitioning_enabled: false
   tls:
     enabled: true
     client_key: "/etc/redpanda/certs/agent.key"
