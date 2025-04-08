@@ -142,7 +142,7 @@ func contains(s []string, e string) bool {
 // this function will attempt to create them if configured to do so.
 func checkTopics(cluster *Redpanda) {
 	ctx := context.Background()
-	var createTopics []string
+	createTopics := make(map[string]Topic)
 	for _, topic := range AllTopics() {
 		if topic.sourceName == schemaTopic ||
 			topic.destinationName == schemaTopic {
@@ -150,29 +150,30 @@ func checkTopics(cluster *Redpanda) {
 			log.Debugf("Skip creating '%s' topic", schemaTopic)
 			continue
 		}
+		
 		if cluster.prefix == Source {
-			if !contains(createTopics, topic.sourceName) {
-				createTopics = append(createTopics, topic.sourceName)
+			_, exists := createTopics[topic.sourceName]
+			if !exists {
+				createTopics[topic.sourceName] = topic
 			}
 		} else if cluster.prefix == Destination {
-			if !contains(createTopics, topic.destinationName) {
-				createTopics = append(createTopics, topic.destinationName)
+			_, exists := createTopics[topic.destinationName]
+			if !exists {
+				createTopics[topic.destinationName] = topic
 			}
 		}
 	}
 
-	topicDetails, err := cluster.adm.ListTopics(ctx, createTopics...)
+	topicDetails, err := cluster.adm.ListTopics(ctx)
 	if err != nil {
 		log.Errorf("Unable to list topics on %s: %v", cluster.name, err)
 		return
 	}
 
-	for _, topic := range createTopics {
-		if !topicDetails.Has(topic) {
+	for topicName, topic := range createTopics {
+		if !topicDetails.Has(topicName) {
 			if config.Exists("create_topics") {
-				// Use the clusters default partition and replication settings
-				resp, _ := cluster.adm.CreateTopics(
-					ctx, -1, -1, nil, topic)
+				resp, _ := cluster.adm.CreateTopics( ctx,int32(topic.destinationPartitions), int16(topic.destinationReplicas), nil, topicName)
 				for _, ctr := range resp {
 					if ctr.Err != nil {
 						log.Warnf("Unable to create topic '%s' on %s: %s",
