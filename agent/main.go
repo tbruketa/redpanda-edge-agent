@@ -142,37 +142,31 @@ func contains(s []string, e string) bool {
 // this function will attempt to create them if configured to do so.
 func checkTopics(cluster *Redpanda) {
 	ctx := context.Background()
-	var createTopics []string
+	createTopics := make(map[string]Topic)
 	for _, topic := range AllTopics() {
-		if topic.sourceName == schemaTopic ||
-			topic.destinationName == schemaTopic {
-			// Skip _schemas internal topic
-			log.Debugf("Skip creating '%s' topic", schemaTopic)
-			continue
-		}
 		if cluster.prefix == Source {
-			if !contains(createTopics, topic.sourceName) {
-				createTopics = append(createTopics, topic.sourceName)
+			_, exists := createTopics[topic.sourceName]
+			if !exists {
+				createTopics[topic.sourceName] = topic
 			}
 		} else if cluster.prefix == Destination {
-			if !contains(createTopics, topic.destinationName) {
-				createTopics = append(createTopics, topic.destinationName)
+			_, exists := createTopics[topic.destinationName]
+			if !exists {
+				createTopics[topic.destinationName] = topic
 			}
 		}
 	}
 
-	topicDetails, err := cluster.adm.ListTopics(ctx, createTopics...)
+	topicDetails, err := cluster.adm.ListTopics(ctx)
 	if err != nil {
 		log.Errorf("Unable to list topics on %s: %v", cluster.name, err)
 		return
 	}
 
-	for _, topic := range createTopics {
-		if !topicDetails.Has(topic) {
+	for topicName, topic := range createTopics {
+		if !topicDetails.Has(topicName) {
 			if config.Exists("create_topics") {
-				// Use the clusters default partition and replication settings
-				resp, _ := cluster.adm.CreateTopics(
-					ctx, -1, -1, nil, topic)
+				resp, _ := cluster.adm.CreateTopics(ctx, int32(topic.destinationPartitions), int16(topic.destinationReplicas), nil, topicName)
 				for _, ctr := range resp {
 					if ctr.Err != nil {
 						log.Warnf("Unable to create topic '%s' on %s: %s",
@@ -247,7 +241,9 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 	partitionMap := make(map[string]int)
 	for _, t := range AllTopics() {
 		topicMap[t.consumeFrom()] = t.produceTo()
-		partitionMap[t.produceTo()] = t.destinationPartitions
+		if t.customPartitioning {
+			partitionMap[t.produceTo()] = t.destinationPartitions
+		}
 	}
 
 	for {
@@ -304,8 +300,11 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 			for !iter.Done() {
 				record := iter.Next()
 				//Calculate Partition using murmur hash on key mod # of partitions
-				partition := Murmur2Partition(record.Key, int32(partitionMap[record.Topic]))
-				record.Partition = partition
+				partitionCount, exists := partitionMap[record.Topic]
+				if exists {
+					partition := Murmur2Partition(record.Key, int32(partitionCount))
+					record.Partition = partition
+				}
 				err := dst.client.ProduceSync(
 					ctx, record).FirstErr()
 				if err != nil {
@@ -315,7 +314,7 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 						return
 					}
 					logWithId("error", src.name,
-						fmt.Sprintf("Unable to send %d record(s) to %s: %s", 1, dst.name, err.Error()))
+						fmt.Sprintf("Unable to send %d record:%s,%d to %s: %s", 1, record.Topic, record.Partition, dst.name, err.Error()))
 					backoff(&errCount)
 				} else {
 					sent = true
