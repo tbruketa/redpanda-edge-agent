@@ -75,4 +75,17 @@ services:
       - "29092:29092"
       - "29644:9644"
       - "28081:8081"
+    
+  redpanda_edge_agent:
+    image: 489654736429.dkr.ecr.us-west-2.amazonaws.com/pason-redpanda-edge-agent:1.0.4
+    container_name: redpanda_edge_agent
+    depends_on:
+      - redpanda_source
+      - redpanda_destination
+    networks:
+      redpanda_network:
+        ipv4_address: "172.24.1.30"
+    volumes:
+      - ./agent.yaml:/etc/redpanda/agent.yaml
+      - ./certs:/etc/redpanda/certs
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -300,6 +301,13 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 	var fetches kgo.Fetches
 	var sent bool
 	var committed bool
+
+	span,_ := tracer.SpanFromContext(context.Background())
+
+	// Create a new span with a specific operation name and service
+    span = tracer.StartSpan("critical.operation", tracer.ResourceName("forwardRecords"))
+    defer span.Finish() // Ensure the span is ended
+
 	logWithId("info", src.name,
 		fmt.Sprintf("Forwarding records from '%s' to '%s'", src.name, dst.name))
 
@@ -320,6 +328,7 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 
 	for {
 		if (sent && committed) || len(fetches.Records()) == 0 {
+			span,_ := tracer.StartSpanFromContext(ctx, "poll.records", tracer.ResourceName("PollRecords"))
 			// Only poll when the previous fetches were successfully
 			// sent and committed
 			logWithId("debug", src.name, "Polling for records...")
@@ -335,6 +344,7 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 					if e.Err == context.Canceled {
 						logWithId("info", src.name,
 							fmt.Sprintf("Received interrupt: %s", e.Err))
+						span.Finish()
 						return
 					}
 					logWithId("error", src.name, fmt.Sprintf("Fetch error: %s, topic=%s, partition=%d", e.Err, e.Topic, e.Partition))
@@ -369,8 +379,10 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 				}
 				sent = false
 				committed = false
+				span.Finish()
 			} else {
 				// No records, skip iteration and poll for more records
+				span.Finish()
 				continue
 			}
 		}
@@ -379,6 +391,7 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 			// Send records to destination
 			iter := fetches.RecordIter()
 			for !iter.Done() {
+				loopSpan, ctx := tracer.StartSpanFromContext(ctx, "send.record", tracer.ResourceName("SendRecord"))
 				record := iter.Next()
 				// Calculate Partition using murmur hash on key mod # of partitions
 				partitionCount, exists := partitionMap[record.Topic]
@@ -409,6 +422,7 @@ func forwardRecords(src *Redpanda, dst *Redpanda, ctx context.Context) {
 					logWithId("debug", src.name,
 						fmt.Sprintf("Sent %d records to %s", 1, dst.name))
 				}
+				loopSpan.Finish()
 			}
 		}
 
@@ -451,6 +465,9 @@ func main() {
 
 	logLevel, _ := log.ParseLevel(*logLevelStr)
 	log.SetLevel(logLevel)
+
+    tracer.Start(tracer.WithServiceName("redpanda-edge-agent"), tracer.WithRuntimeMetrics())
+	defer tracer.Stop()
 
 	InitConfig(configFile)
 	initClient(&source, &sourceOnce, Source)
