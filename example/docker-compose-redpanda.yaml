@@ -77,15 +77,52 @@ services:
       - "28081:8081"
     
   redpanda_edge_agent:
-    image: 489654736429.dkr.ecr.us-west-2.amazonaws.com/pason-redpanda-edge-agent:1.0.4
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
     container_name: redpanda_edge_agent
     depends_on:
       - redpanda_source
       - redpanda_destination
+    environment:
+      # all env vars passed in that the container requires need to be specified in this section
+      # Only set the variables that are specific to the docker-compose environment
+      # the remainder will come from the default service_configuration.env file
+      - DD_SERVICE=redpanda-edge-agent
+      - DD_ENV=local
+      - DD_VERSION=1.0.4
+      - DD_TRACE_OTLP_ENABLED=true
+      - DD_OTLP_TRACES_URL=datadog-agent:4317
+      - DD_AGENT_HOST=datadog-agent
     networks:
       redpanda_network:
         ipv4_address: "172.24.1.30"
     volumes:
       - ./agent.yaml:/etc/redpanda/agent.yaml
       - ./certs:/etc/redpanda/certs
+
+# enable to test datadog locally
+  datadog-agent:
+    image: datadog/agent:latest 
+    expose:
+      - "4317"
+    ports:
+      - "4317:4317"
+    environment:
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+      - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+      - DD_AC_EXCLUDE=name:datadog-agent
+      - DD_API_KEY=no_key # Use the dev-testing-key API key here (https://app.datadoghq.com/organization-settings/api-keys)
+      - DD_ENV=local
+      - DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT=0.0.0.0:4317
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+    networks:
+      - redpanda_network
+    healthcheck:
+      test: [ "NONE" ]
+
 
